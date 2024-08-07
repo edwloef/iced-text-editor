@@ -1,13 +1,13 @@
 use iced::{
-    executor, highlighter, keyboard, theme, widget, Application, Command, Element, Settings,
-    Subscription, Theme,
+    alignment, executor, font, highlighter, keyboard, theme, widget, Application, Command, Element,
+    Result, Settings, Subscription, Theme,
 };
 
 use std::{env, fs, path::PathBuf};
 
-fn main() -> iced::Result {
+fn main() -> Result {
     Editor::run(Settings {
-        default_font: iced::font::Font::with_name("Noto Sans Mono"),
+        default_font: font::Font::with_name("Noto Sans Mono"),
         ..Settings::default()
     })
 }
@@ -16,11 +16,15 @@ struct Editor {
     path: Option<PathBuf>,
     content: widget::text_editor::Content,
     dirty: bool,
+    color_theme: Theme,
+    highlighter_theme: highlighter::Theme,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     EditorAction(widget::text_editor::Action),
+    ColorThemeChange(theme::Theme),
+    HighlighterThemeChange(highlighter::Theme),
     OpenFile,
     NewFile,
     SaveFile,
@@ -38,6 +42,8 @@ impl Application for Editor {
                 path: None,
                 content: widget::text_editor::Content::new(),
                 dirty: true,
+                color_theme: Theme::GruvboxDark,
+                highlighter_theme: highlighter::Theme::Base16Mocha,
             },
             Command::none(),
         )
@@ -79,6 +85,12 @@ impl Application for Editor {
                     self.dirty = false;
                 }
             }
+            Message::ColorThemeChange(theme) => {
+                self.color_theme = theme;
+            }
+            Message::HighlighterThemeChange(theme) => {
+                self.highlighter_theme = theme;
+            }
         };
 
         Command::none()
@@ -86,7 +98,12 @@ impl Application for Editor {
 
     fn subscription(&self) -> Subscription<Message> {
         keyboard::on_key_press(|key_code, modifiers| match key_code {
-            keyboard::Key::Character(_s) if modifiers.command() => Some(Message::SaveFile),
+            keyboard::Key::Character(c) if modifiers.command() => match c.to_string().as_str() {
+                "s" => Some(Message::SaveFile),
+                "o" => Some(Message::OpenFile),
+                "n" => Some(Message::NewFile),
+                _ => None,
+            },
             _ => None,
         })
     }
@@ -98,7 +115,7 @@ impl Application for Editor {
             })
             .highlight::<highlighter::Highlighter>(
                 highlighter::Settings {
-                    theme: highlighter::Theme::SolarizedDark,
+                    theme: self.highlighter_theme,
                     extension: self
                         .path
                         .as_ref()
@@ -111,11 +128,9 @@ impl Application for Editor {
             .into();
 
         let status: Element<'_, Message> = {
-            let controls: Element<'_, Message> = widget::row![
+            let controls_l: Element<'_, Message> = widget::row![
                 widget::button("New").on_press(Message::NewFile),
-                widget::Space::with_width(10),
                 widget::button("Open").on_press(Message::OpenFile),
-                widget::Space::with_width(10),
                 widget::button("Save")
                     .style(if self.dirty {
                         theme::Button::Primary
@@ -124,6 +139,8 @@ impl Application for Editor {
                     })
                     .on_press_maybe(self.dirty.then_some(Message::SaveFile)),
             ]
+            .align_items(alignment::Alignment::Center)
+            .spacing(10)
             .into();
 
             let file_path: Element<'_, Message> = widget::text(if self.path.is_some() {
@@ -133,32 +150,44 @@ impl Application for Editor {
             })
             .into();
 
-            let position: Element<'_, Message> = {
-                let (line, column): (usize, usize) = self.content.cursor_position();
-                widget::text(format!("{}:{}", line, column)).into()
-            };
+            let controls_r: Element<'_, Message> = widget::row!(
+                widget::pick_list(
+                    Theme::ALL,
+                    Some(self.color_theme.clone()),
+                    Message::ColorThemeChange,
+                ),
+                widget::pick_list(
+                    highlighter::Theme::ALL,
+                    Some(self.highlighter_theme),
+                    Message::HighlighterThemeChange,
+                ),
+                {
+                    let (line, column): (usize, usize) = self.content.cursor_position();
+                    widget::text(format!("{}:{}", line, column))
+                }
+            )
+            .align_items(alignment::Alignment::Center)
+            .spacing(10)
+            .into();
 
             widget::row!(
-                controls,
+                controls_l,
                 widget::horizontal_space(),
                 file_path,
                 widget::horizontal_space(),
-                position
+                controls_r
             )
+            .align_items(alignment::Alignment::Center)
             .into()
         };
 
-        widget::container(widget::column![
-            status,
-            widget::Space::with_height(10),
-            input,
-        ])
-        .padding(10)
-        .into()
+        widget::container(widget::column![status, input,].spacing(10))
+            .padding(10)
+            .into()
     }
 
     fn theme(&self) -> Theme {
-        Theme::Dark
+        self.color_theme.clone()
     }
 }
 
